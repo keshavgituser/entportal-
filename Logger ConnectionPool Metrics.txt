@@ -1,0 +1,100 @@
+package com.bluedart.cosmat.vehicle.serviceimpl;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+import javax.annotation.PostConstruct;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import lombok.extern.slf4j.Slf4j;
+import oracle.ucp.jdbc.JDBCConnectionPoolStatistics;
+import oracle.ucp.jdbc.PoolDataSource;
+import oracle.ucp.jdbc.PoolDataSourceFactory;
+
+@Service
+@Slf4j
+public class ConnectionPoolMetricsService {
+
+	@Value("${custom.connection-pool-metrics.enabled}")
+	private boolean metricsEnabled;
+
+	@Value("${custom.connection-pool-metrics.log-interval-minutes}")
+	private int logIntervalMinutes;
+
+	@Autowired
+	private PoolDataSource poolDataSource;
+
+	private ScheduledExecutorService scheduler = Executors
+			.newSingleThreadScheduledExecutor(createDaemonThreadFactory());;
+
+	private ThreadFactory createDaemonThreadFactory() {
+		return r -> {
+			Thread thread = new Thread(r);
+			thread.setDaemon(true);
+			return thread;
+		};
+	}
+
+	@PostConstruct
+	public void init() {
+		if (metricsEnabled) {
+			scheduler.scheduleAtFixedRate(() -> {
+				try {
+					logConnectionPoolStatistics();
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}, 0, logIntervalMinutes, TimeUnit.MINUTES);
+		}
+	}
+
+	public void logConnectionPoolStatistics() {
+		try {
+			JDBCConnectionPoolStatistics poolStatistics = poolDataSource.getStatistics();
+			int total =poolDataSource.getMaxPoolSize();
+		
+
+//			int totalConnections = poolStatistics.getTotalConnectionsCount();
+//			int totalConnections = poolStatistics.getTotalConnectionsCount();
+
+			int activeConnections = poolStatistics.getBorrowedConnectionsCount();
+			int availableConnections = poolStatistics.getAvailableConnectionsCount();
+			int waitingConnections = poolStatistics.getPendingRequestsCount();
+			int peakConnectionCount = poolStatistics.getPeakConnectionsCount();
+			int remaningPoolCapacity = poolStatistics.getRemainingPoolCapacityCount();
+			long cummulativeConnectionWaitTime = poolStatistics.getCumulativeConnectionWaitTime();
+
+			log.error("Total Connections(pool size): {}", total);
+			log.error("Active Connections: {}", activeConnections);
+			log.error("Available Connections: {}", availableConnections);
+			log.error("Waiting Connections: {}", waitingConnections);
+			log.error("Peak Connection Count: {}", peakConnectionCount);
+			log.error("Remaning Pool Capacity: {}", remaningPoolCapacity);
+			log.error("Cummulative Connection Wait Time in milliseconds: {}", cummulativeConnectionWaitTime);
+
+		} catch (Exception e) {
+			log.error("Error retrieving connection pool statistics: {}", e.getMessage());
+			log.debug("Exception details: ", e);
+		}
+
+	}
+
+	public void close() {
+		scheduler.shutdown();
+	}
+
+//	@Autowired
+//	public ConnectionPoolMetricsService(PoolDataSource poolDataSource) {
+//		this.poolDataSource = poolDataSource;
+//		this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+//			Thread thread = new Thread(r);
+//			thread.setDaemon(true);
+//			return thread;
+//		});
+//	}
+}
